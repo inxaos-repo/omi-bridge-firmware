@@ -1,0 +1,92 @@
+menu "Omi bridge"
+
+    config OMI_WIFI_SSID
+        string "WiFi SSID"
+        default ""
+        help
+            Overridden by NVS key omi/wifi_ssid. Keep secrets out of git.
+
+    config OMI_WIFI_PASSWORD
+        string "WiFi password"
+        default ""
+        help
+            Overridden by NVS key omi/wifi_pass.
+
+    config OMI_INGEST_URL
+        string "Ingest base URL"
+        default "http://omi-ingest.local:8080"
+        help
+            Base URL of omi-monologue-pipeline --serve (no trailing slash).
+            NVS: omi/ingest_url.
+
+    config OMI_INGEST_TOKEN
+        string "Ingest bearer token (OMI_INGEST_TOKEN)"
+        default ""
+        help
+            Empty = no Authorization header. NVS: omi/token.
+
+    config OMI_DEVICE_ID
+        string "Device id sent as ?device="
+        default "omi-bridge"
+        help
+            Prefix with "test" (e.g. omi-test-bridge) to route to the TEST wiki prefix.
+            NVS: omi/device_id.
+
+    config OMI_PENDANT_MAC
+        string "Pendant MAC filter (aa:bb:cc:dd:ee:ff, empty = any Omi)"
+        default ""
+        help
+            NVS: omi/pendant_mac.
+
+    config OMI_NAME_PREFIX
+        string "Advertised name prefix"
+        default "Omi"
+
+    config OMI_NTP_SERVER
+        string "SNTP server"
+        default "pool.ntp.org"
+        help
+            Use the gateway (e.g. 192.168.2.1) if the IoT VLAN has no internet. NVS: omi/ntp.
+
+    config OMI_PENDANT_TIME_SYNC
+        bool "Write SNTP epoch to the pendant RTC (19B10031)"
+        default y
+
+    config OMI_BATCH_MS
+        int "Live batch length (ms) per POST /v1/frames"
+        default 10000
+        range 1000 60000
+
+    config OMI_RAM_QUEUE_KB
+        int "RAM (PSRAM) upload queue limit (KB) before spilling to flash spool"
+        default 2048
+        range 64 6144
+
+    config OMI_SPILL_AFTER_S
+        int "Spill queued batches to flash if not uploaded within (s)"
+        default 30
+        range 5 3600
+
+    config OMI_STORAGE_SYNC
+        bool "Enable pendant storage sync (fw 3.0.21 ring) - CONSUMES pendant data"
+        default n
+        help
+            Reading the 3.0.21 ring frees pendant storage as it is sent.
+            Data is fsync'd to the local flash spool before RING_ADVANCE is sent.
+            RING_CLEAR is never sent. NVS: omi/storage_sync (u8).
+
+    config OMI_RING_READ_CHUNK
+        int "Packets per RING_READ (444 B each)"
+        default 256
+        range 16 4096
+
+    config OMI_LED_GPIO
+        int "Health LED GPIO (-1 = none; plain on/off LED, not WS2812)"
+        default -1
+        range -1 48
+
+    config OMI_LED_ACTIVE_LOW
+        bool "LED is active low"
+        default n
+
+endmenu

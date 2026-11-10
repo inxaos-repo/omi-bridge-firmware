@@ -1,0 +1,10 @@
+build/
+managed_components/
+dependencies.lock
+sdkconfig
+sdkconfig.old
+sdkconfig.local
+nvs_config.csv
+*.nvs.bin
+test/host/test_omi_proto
+.vscode/
