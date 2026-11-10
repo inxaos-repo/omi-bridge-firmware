@@ -5,6 +5,10 @@
 #include <stdint.h>
 
 #include "omi_proto.h"
+#include "omi_sizing.h"
+
+/* buffer sizes from detected PSRAM, set in app_main before any init */
+extern omi_sizing_t g_sizing;
 
 /* ---- config (Kconfig defaults, NVS namespace "omi" overrides) ---- */
 typedef struct {
@@ -23,10 +27,11 @@ void config_load(void);
 
 /* ---- LED / health ---- */
 typedef enum {
-    LED_NO_WIFI = 0,   /* off, short blip every 2 s */
-    LED_IDLE,          /* WiFi up, no pendant: slow blink */
-    LED_STREAMING,     /* pendant connected: solid */
-    LED_BACKLOG,       /* uploads failing / spool non-empty: fast blink */
+    LED_NO_WIFI = 0,   /* error. RGB: red. plain: blip every 2 s */
+    LED_IDLE,          /* scanning/connecting to pendant. RGB: blue. plain: slow blink */
+    LED_STREAMING,     /* streaming, uploads OK. RGB: green. plain: solid */
+    LED_BACKLOG,       /* buffering in PSRAM (ingest unreachable). RGB: amber. plain: fast blink */
+    LED_SPOOLING,      /* data in the flash spool. RGB: red. plain: fast blink */
 } led_state_t;
 void led_init(void);
 void led_set(led_state_t s);

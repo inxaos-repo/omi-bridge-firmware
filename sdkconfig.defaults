@@ -1,4 +1,5 @@
-# Template defaults for target esp32s3. NO SECRETS HERE.
+# Template defaults for target esp32s3 (board: Seeed XIAO ESP32S3). NO SECRETS HERE.
+# Other boards: sdkconfig.board.<name> overlays, see README "Boards".
 # WiFi/token/URL: set via `idf.py menuconfig` into a local, git-ignored sdkconfig,
 # or (preferred) flash an NVS config partition (see nvs_config.csv.example).
 CONFIG_IDF_TARGET="esp32s3"

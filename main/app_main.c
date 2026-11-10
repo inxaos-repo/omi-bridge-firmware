@@ -7,8 +7,11 @@
 #include "esp_log.h"
 #include "esp_psram.h"
 #include "nvs_flash.h"
+#include "sdkconfig.h"
 
 static const char *TAG = "main";
+
+omi_sizing_t g_sizing;
 
 void app_main(void)
 {
@@ -20,8 +23,12 @@ void app_main(void)
     ESP_ERROR_CHECK(err);
 
     const esp_app_desc_t *app = esp_app_get_description();
-    ESP_LOGI(TAG, "omi-bridge %s (IDF %s), PSRAM %u KB", app->version, app->idf_ver,
-             esp_psram_is_initialized() ? (unsigned)(esp_psram_get_size() / 1024) : 0);
+    size_t psram = esp_psram_is_initialized() ? esp_psram_get_size() : 0;
+    g_sizing = omi_sizing_compute(psram, CONFIG_OMI_RAM_QUEUE_KB);
+    ESP_LOGI(TAG, "omi-bridge %s (IDF %s, board %s), PSRAM %u KB -> RAM queue %u/%u KB, ring %u KB",
+             app->version, app->idf_ver, CONFIG_OMI_BOARD_NAME, (unsigned)(psram / 1024),
+             (unsigned)(g_sizing.ram_queue_soft / 1024), (unsigned)(g_sizing.ram_queue_hard / 1024),
+             (unsigned)(g_sizing.ring_buf / 1024));
 
     config_load();
     led_init();

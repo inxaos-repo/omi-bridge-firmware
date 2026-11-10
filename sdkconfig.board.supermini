@@ -1,0 +1,22 @@
+# Overlay for Aideepen "ESP32-S3 Mini / SuperMini" (ESP32-S3FH4R2, S3-Zero style).
+# Applied AFTER sdkconfig.defaults:
+#   idf.py -B build-supermini -D SDKCONFIG=build-supermini/sdkconfig \
+#     -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.board.supermini" build
+CONFIG_OMI_BOARD_NAME="s3-supermini"
+
+# 4 MB in-package flash, QIO
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions_4mb.csv"
+
+# 2 MB QUAD (QSPI) in-package PSRAM, not octal
+CONFIG_SPIRAM_MODE_QUAD=y
+CONFIG_SPIRAM_SPEED_80M=y
+
+# Native USB-C: console on USB-Serial-JTAG (Arduino "USB CDC on boot")
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+
+# WS2812 status LED on GPIO21
+CONFIG_OMI_LED_GPIO=21
+CONFIG_OMI_LED_WS2812=y
+CONFIG_OMI_LED_BRIGHTNESS=16

@@ -26,7 +26,7 @@ to the ingest API of [omi-monologue-pipeline](https://github.com/inxaos-repo/omi
    - Batches wait in a PSRAM queue.
    - Anything not uploaded within `OMI_SPILL_AFTER_S` (30 s), or above `OMI_RAM_QUEUE_KB`, is written
      atomically (tmp → fsync → rename) to a LittleFS spool on the `spool` flash partition (~4 MB ≈
-     17 min of audio).
+     17 min of audio on 8 MB boards, 1.25 MB ≈ 5 min on the 4 MB SuperMini).
    - Uploads retry with exponential backoff (1 s → 30 s) and drain the oldest data (flash) first.
    - 400/413/415 responses go to `/spool/bad/` and are not retried forever.
 7. **Storage sync (fw 3.0.21 ring) is OFF by default.** Reading the ring frees pendant storage as it is
@@ -47,18 +47,35 @@ to the ingest API of [omi-monologue-pipeline](https://github.com/inxaos-repo/omi
 
 ## Hardware
 
-- Any **ESP32-S3 with octal PSRAM and 8 MB+ flash**. Reference: Espressif **ESP32-S3-DevKitC-1-N8R8**,
-  or Seeed **XIAO ESP32S3** (8 MB flash / 8 MB PSRAM, with external antenna).
-- It boots without PSRAM (`CONFIG_SPIRAM_IGNORE_NOTFOUND`), but then the RAM queue is tiny.
+Two board targets, both built in CI:
+
+| Board | Flash / PSRAM | Config | LED |
+|---|---|---|---|
+| Seeed **XIAO ESP32S3** (default; also ESP32-S3-DevKitC-1-N8R8) | 8 MB / 8 MB octal | `sdkconfig.defaults`, `partitions.csv` | none by default (`OMI_LED_GPIO` for a plain LED) |
+| Aideepen **ESP32-S3 Mini / SuperMini** (ESP32-S3FH4R2, S3-Zero style) | 4 MB / 2 MB quad | `+ sdkconfig.board.supermini`, `partitions_4mb.csv` | WS2812 on GPIO21 |
+
+- Buffer sizes adapt to the PSRAM detected at boot (`components/omi_sizing`, host-tested): the RAM
+  queue is `min(OMI_RAM_QUEUE_KB, 35% of PSRAM)` before spilling to flash, hard cap 2x that, and the
+  ring-sync buffer is `min(256 KB, PSRAM/8)`. With 8 MB: 2 MB/4 MB/256 KB. With 2 MB: ~717 KB/1.4 MB/256 KB
+  (~3 min of audio in RAM). Logged at boot.
+- It boots without PSRAM (`CONFIG_SPIRAM_IGNORE_NOTFOUND`), but then the RAM queue is 64 KB.
 - USB 5 V power. Keep it within a few metres of where the pendant is worn or charged.
-- Health LED: set `OMI_LED_GPIO` for a plain LED. It is not a WS2812 driver, so the DevKitC RGB LED
-  on GPIO48 is not supported. Patterns:
-  - blip every 2 s: no WiFi
-  - slow blink: WiFi up, no pendant
-  - solid: streaming
-  - fast blink: upload backlog or failures
 - Logs on the USB serial console include a `health:` line every 60 s with queue, spool, posts and
   losses.
+
+### Status LED
+
+WS2812 (SuperMini, `OMI_LED_WS2812`, brightness `OMI_LED_BRIGHTNESS`=16/255):
+
+- **blue**: WiFi up, scanning for / connecting to the pendant
+- **green**: pendant streaming, uploads OK
+- **amber**: buffering in PSRAM (ingest unreachable or slow)
+- **red**: data in the flash spool, or no WiFi (error)
+
+If red and green look swapped, enable `OMI_LED_WS2812_RGB_ORDER`.
+
+Plain LED (`OMI_LED_GPIO` without WS2812): blip every 2 s = no WiFi, slow blink = scanning, solid =
+streaming, fast blink = buffering/spooling.
 
 ## Build
 
@@ -102,14 +119,56 @@ esptool.py --chip esp32s3 write_flash 0x9000 nvs.bin
 | `ntp` | `OMI_NTP_SERVER` | SNTP server (use the gateway if the IoT VLAN has no internet) |
 | `storage_sync` (u8) | `OMI_STORAGE_SYNC` | 0 (default) / 1. **1 consumes pendant data** |
 
-Batch length, queue limits, spill timeout, ring chunk size, LED GPIO and the time sync toggle are
-Kconfig-only.
+Batch length, queue limits, spill timeout, ring chunk size, LED GPIO/type and the time sync toggle are
+Kconfig-only (or per-board in `sdkconfig.board.*`).
 
 ## Flash
+
+XIAO:
 
 ```bash
 idf.py -p /dev/ttyACM0 flash monitor
 ```
+
+### ESP32-S3 SuperMini (4 MB / 2 MB)
+
+1. Build with the board overlay (or download the `omi-bridge-esp32s3-supermini` CI artifact):
+
+   ```bash
+   B=build-supermini
+   idf.py -B $B -D SDKCONFIG=$B/sdkconfig \
+     -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.board.supermini" set-target esp32s3 build
+   ```
+
+2. Make the config. Copy `nvs_config.csv.example` to `nvs_config.csv` and set:
+   - `wifi_ssid`, `wifi_pass`: IoT VLAN WiFi
+   - `ingest_url`: e.g. `http://192.168.2.X:8080`
+   - `token`: the `OMI_INGEST_TOKEN` value
+   - `device_id`: `omi-test-bridge` (the `test` prefix routes to the TEST wiki prefix)
+   - `storage_sync`: `0` (**OFF for the first test**; 1 consumes pendant data)
+
+   ```bash
+   python $IDF_PATH/components/nvs_flash/nvs_partition_generator/nvs_partition_gen.py \
+     generate nvs_config.csv nvs.bin 0x6000
+   ```
+
+3. Plug in over USB-C (native USB, shows up as `/dev/ttyACM0`). A blank or freshly bought board
+   usually enumerates right away. If it doesn't, or the flash fails to connect: hold **BOOT**,
+   tap **RESET** (or plug in while holding BOOT), then release BOOT.
+
+4. Flash app and config, then watch the console (USB-Serial-JTAG):
+
+   ```bash
+   idf.py -B $B -p /dev/ttyACM0 flash
+   esptool.py --chip esp32s3 -p /dev/ttyACM0 write_flash 0x9000 nvs.bin
+   idf.py -B $B -p /dev/ttyACM0 monitor
+   ```
+
+   The boot log should say `board s3-supermini, PSRAM 2048 KB`. If it says `PSRAM 0 KB`, the PSRAM
+   mode is wrong for your chip. The LED should go red → blue → green once the pendant streams.
+
+The SuperMini table (`partitions_4mb.csv`) has two 1.31 MB OTA slots and a **1.25 MB spool ≈ 5 min of
+audio** (vs ~17 min on 8 MB boards).
 
 The partition table (`partitions.csv`, 8 MB) has two OTA app slots (`ota_0`/`ota_1`), so OTA can be
 added later without repartitioning. No OTA client is implemented yet.
@@ -123,14 +182,16 @@ main/ble_central.c      NimBLE scan/connect/discover/subscribe step machine
 main/uplink.c           live batching, PSRAM queue, spill, HTTP POST + retry
 main/spool.c            LittleFS spool (atomic records, .prt recovery, quarantine)
 main/ring_sync.c        3.0.21 ring storage sync (off by default)
-main/net.c, config.c, led.c, app_main.c
+components/omi_sizing/  pure C PSRAM-based buffer sizing (host-tested)
+main/led.c              WS2812 / plain / no-op health LED
+main/net.c, config.c, app_main.c
 test/host/              host unit tests (vectors from omi-monologue-pipeline tests/test_omi_protocol.py)
 ```
 
 ## Verified vs untested
 
 Verified (CI):
-- `idf.py build` for esp32s3 with `espressif/idf:v5.3.2`.
+- `idf.py build` for esp32s3 (XIAO and SuperMini) with `espressif/idf:v5.3.2`.
 - Host unit tests (ASan/UBSan) for every function in `omi_proto`, using the same vectors as the Python
   reference.
 
@@ -141,5 +202,5 @@ Untested (needs hardware, tracked in issues):
 - The end-to-end POST to a live ingest.
 - LittleFS behaviour on a full spool, and power-loss recovery.
 - The ring sync against a real 3.0.21 pendant.
-- Board choice, pinout and LED.
+- Both boards (nothing has run on hardware), SuperMini quad-PSRAM detection, WS2812 colour order.
 - Pendant battery drain under continuous streaming.
