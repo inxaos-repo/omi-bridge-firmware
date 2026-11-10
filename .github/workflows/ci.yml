@@ -12,27 +12,39 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: omi_proto host unit tests (ASan/UBSan)
+      - name: host unit tests (ASan/UBSan)
         run: make -C test/host test
 
   build-esp32s3:
     runs-on: ubuntu-latest
     container: espressif/idf:v5.3.2
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - board: xiao
+            defaults: "sdkconfig.defaults"
+          - board: supermini
+            defaults: "sdkconfig.defaults;sdkconfig.board.supermini"
+    name: build-esp32s3 (${{ matrix.board }})
     steps:
       - uses: actions/checkout@v4
-      - name: idf.py build (esp32s3)
+      - name: idf.py build (esp32s3, ${{ matrix.board }})
         shell: bash
         run: |
           . $IDF_PATH/export.sh
-          idf.py set-target esp32s3
-          idf.py build || { ninja -C build -k 0 2>&1 | grep -E 'error|warning' ; exit 1; }
-          idf.py size
+          B=build-${{ matrix.board }}
+          ARGS=(-B "$B" -D SDKCONFIG="$B/sdkconfig" -D SDKCONFIG_DEFAULTS="${{ matrix.defaults }}")
+          idf.py "${ARGS[@]}" set-target esp32s3
+          idf.py "${ARGS[@]}" build || { ninja -C "$B" -k 0 2>&1 | grep -E 'error|warning' ; exit 1; }
+          idf.py "${ARGS[@]}" size
+          grep -E '^CONFIG_(ESPTOOLPY_FLASHSIZE|SPIRAM_MODE|OMI_LED|OMI_BOARD|ESP_CONSOLE_USB)' "$B/sdkconfig"
       - uses: actions/upload-artifact@v4
         with:
-          name: omi-bridge-esp32s3
+          name: omi-bridge-esp32s3-${{ matrix.board }}
           path: |
-            build/omi_bridge.bin
-            build/bootloader/bootloader.bin
-            build/partition_table/partition-table.bin
-            build/flasher_args.json
+            build-${{ matrix.board }}/omi_bridge.bin
+            build-${{ matrix.board }}/bootloader/bootloader.bin
+            build-${{ matrix.board }}/partition_table/partition-table.bin
+            build-${{ matrix.board }}/flasher_args.json
           if-no-files-found: error

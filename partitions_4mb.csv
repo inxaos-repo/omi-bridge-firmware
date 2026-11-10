@@ -1,0 +1,10 @@
+# 4 MB flash (Aideepen ESP32-S3 SuperMini / ESP32-S3FH4R2). OTA-ready: two app slots.
+# App is ~1.1 MB today; 1.31 MB slots leave ~20% headroom. Spool gets the rest:
+# 1.25 MB ~= 5 min of audio at ~4 KB/s (less LittleFS overhead).
+# Name,   Type, SubType, Offset,   Size
+nvs,      data, nvs,     0x9000,   0x6000
+otadata,  data, ota,     0xf000,   0x2000
+phy_init, data, phy,     0x11000,  0x1000
+ota_0,    app,  ota_0,   0x20000,  0x150000
+ota_1,    app,  ota_1,   0x170000, 0x150000
+spool,    data, spiffs,  0x2C0000, 0x140000

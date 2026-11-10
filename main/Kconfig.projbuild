@@ -80,8 +80,32 @@ menu "Omi bridge"
         default 256
         range 16 4096
 
+    config OMI_BOARD_NAME
+        string "Board name (logged at boot)"
+        default "xiao-esp32s3"
+
+    config OMI_LED_WS2812
+        bool "Health LED is a WS2812 RGB LED (on OMI_LED_GPIO)"
+        default n
+        help
+            blue = scanning/connecting, green = streaming + uploads OK,
+            amber = buffering in PSRAM, red = spooling to flash / no WiFi.
+
+    config OMI_LED_WS2812_RGB_ORDER
+        bool "WS2812 uses RGB byte order (default GRB)"
+        depends on OMI_LED_WS2812
+        default n
+        help
+            Some ESP32-S3-Zero clones wire an RGB-order LED. Flip this if red and green are swapped.
+
+    config OMI_LED_BRIGHTNESS
+        int "WS2812 brightness (0-255 per channel max)"
+        depends on OMI_LED_WS2812
+        default 16
+        range 1 255
+
     config OMI_LED_GPIO
-        int "Health LED GPIO (-1 = none; plain on/off LED, not WS2812)"
+        int "Health LED GPIO (-1 = none)"
         default -1
         range -1 48
 

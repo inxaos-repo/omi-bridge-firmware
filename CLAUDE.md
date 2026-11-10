@@ -18,7 +18,7 @@ README.md has the user-facing details.
 - Don't flash devices or connect to the real pendant from automation.
 
 ## Workflow
-- Branch `bob/*` → PR → CI green (`host-tests` and `build-esp32s3`). Bob created this repo, so Bob may
+- Branch `bob/*` → PR → CI green (`host-tests` and the `build-esp32s3` matrix: xiao + supermini). Bob created this repo, so Bob may
   self-merge after green CI.
 - Local checks:
   - `make -C test/host test`

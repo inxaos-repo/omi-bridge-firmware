@@ -24,7 +24,6 @@
 
 static const char *TAG = "ring";
 
-#define RB_BYTES          (256 * 1024)
 #define SYNC_EVERY_PKTS   32
 #define STREAM_MAX_BYTES  (600 * OMI_STORAGE_BLOCK)  /* ~264 KB, ~1 min audio */
 #define TS_JUMP_S         30
@@ -207,8 +206,8 @@ static void ring_task(void *arg)
 void ring_sync_init(void)
 {
     if (!g_cfg.storage_sync) return;
-    uint8_t *mem = heap_caps_malloc(RB_BYTES, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    size_t sz = RB_BYTES;
+    size_t sz = g_sizing.ring_buf;
+    uint8_t *mem = heap_caps_malloc(sz, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (!mem) {
         sz = 32 * 1024;
         mem = heap_caps_malloc(sz, MALLOC_CAP_8BIT);

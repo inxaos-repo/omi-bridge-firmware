@@ -194,7 +194,7 @@ static void maybe_spill(void)
     for (;;) {
         xSemaphoreTake(s_mu, portMAX_DELAY);
         item_t *h = s_head;
-        bool spill = h && (s_ram_bytes > (size_t)CONFIG_OMI_RAM_QUEUE_KB * 1024 || s_ram_items > MAX_RAM_ITEMS ||
+        bool spill = h && (s_ram_bytes > g_sizing.ram_queue_soft || s_ram_items > MAX_RAM_ITEMS ||
                            (esp_timer_get_time() - h->queued_us) / 1000000 >= CONFIG_OMI_SPILL_AFTER_S);
         xSemaphoreGive(s_mu);
         if (!spill) return;
@@ -207,7 +207,7 @@ static void maybe_spill(void)
         } else {
             push_front(it);   /* flash full: keep in RAM; drop only if RAM is over hard cap */
             xSemaphoreTake(s_mu, portMAX_DELAY);
-            bool over = s_ram_bytes > (size_t)CONFIG_OMI_RAM_QUEUE_KB * 1024 * 2;
+            bool over = s_ram_bytes > g_sizing.ram_queue_hard;
             xSemaphoreGive(s_mu);
             if (over) {
                 item_t *drop = pop_head();
@@ -236,7 +236,8 @@ static void uplink_task(void *arg)
 
         int spooled = spool_count();
         s_backlog = spooled > 0 || s_ram_items > 2;
-        led_set(!net_wifi_up() ? LED_NO_WIFI : s_backlog ? LED_BACKLOG : ble_connected() ? LED_STREAMING : LED_IDLE);
+        led_set(!net_wifi_up() ? LED_NO_WIFI : spooled > 0 ? LED_SPOOLING : s_ram_items > 2 ? LED_BACKLOG
+                : ble_connected() ? LED_STREAMING : LED_IDLE);
 
         int64_t now = esp_timer_get_time();
         if (now - last_stats > 60LL * 1000000) {
