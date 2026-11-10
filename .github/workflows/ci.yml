@@ -25,7 +25,7 @@ jobs:
         run: |
           . $IDF_PATH/export.sh
           idf.py set-target esp32s3
-          idf.py build
+          idf.py build || { ninja -C build -k 0 2>&1 | grep -E 'error|warning' ; exit 1; }
           idf.py size
       - uses: actions/upload-artifact@v4
         with:
