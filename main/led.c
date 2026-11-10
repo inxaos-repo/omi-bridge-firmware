@@ -18,6 +18,7 @@ static void led_out(int on)
 #endif
 }
 
+#if CONFIG_OMI_LED_GPIO >= 0
 static void led_task(void *arg)
 {
     int t = 0;
@@ -34,6 +35,7 @@ static void led_task(void *arg)
         vTaskDelay(pdMS_TO_TICKS(100));
     }
 }
+#endif
 
 void led_init(void)
 {
