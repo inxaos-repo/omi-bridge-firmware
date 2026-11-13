@@ -402,6 +402,7 @@ static void handle(const uint8_t *d, size_t n)
     if (!C.legacy) { c_handle(&m); return; }
     if (!g_cfg.storage_sync) return;
     switch (m.type) {
+    case OMI_RING_NOTIFY_LIVE_MARK: break; /* 3.0.24 only */
     case OMI_RING_NOTIFY_INFO: maybe_read(&m); break;
     case OMI_RING_NOTIFY_BEGIN:
         if (m.seq != S.start_seq) ESP_LOGW(TAG, "BEGIN seq %llu != requested %llu", (unsigned long long)m.seq, (unsigned long long)S.start_seq);

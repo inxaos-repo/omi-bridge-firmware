@@ -100,7 +100,7 @@ void uplink_live_frame(const uint8_t *frame, size_t n, uint32_t pid, uint32_t ge
     int64_t now = esp_timer_get_time();
     xSemaphoreTake(s_mu, portMAX_DELAY);
     if (s_live_frames && (gen != s_live_gen ||
-        (now - s_live_start_us) / 1000 >= CONFIG_OMI_BATCH_MS || s_live_len + 2 + n > LIVE_CAP))) {
+        (now - s_live_start_us) / 1000 >= CONFIG_OMI_BATCH_MS || s_live_len + 2 + n > LIVE_CAP)) {
         live_finalize_locked();
     }
     if (s_live_frames == 0) {
