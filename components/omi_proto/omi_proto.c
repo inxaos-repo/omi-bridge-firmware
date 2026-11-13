@@ -164,6 +164,46 @@ size_t omi_ring_cmd_advance(uint8_t out[9], uint64_t seq)
     return 9;
 }
 
+size_t omi_ring_cmd_custody(uint8_t out[3], uint8_t caps)
+{
+    out[0] = OMI_RING_CMD_CUSTODY;
+    out[1] = OMI_CUSTODY_VERSION;
+    out[2] = caps;
+    return 3;
+}
+
+size_t omi_ring_cmd_advance_id(uint8_t out[17], uint64_t ring_id, uint64_t seq)
+{
+    out[0] = OMI_RING_CMD_ADVANCE_ID;
+    wr_be64(out + 1, ring_id);
+    wr_be64(out + 9, seq);
+    return 17;
+}
+
+bool omi_custody_target(uint64_t start, uint32_t packets, uint32_t requested, uint64_t *out)
+{
+    uint32_t n = packets < requested ? packets : requested;
+    if (n == 0) return false;
+    *out = start + n;
+    return true;
+}
+
+void omi_pid_unwrap(uint32_t *state, bool *valid, uint16_t id)
+{
+    if (!*valid) {
+        *state = id;
+        *valid = true;
+        return;
+    }
+    *state += (uint16_t)(id - (uint16_t)*state);
+}
+
+uint32_t omi_pid_near(uint32_t ref, uint16_t id)
+{
+    int16_t d = (int16_t)(uint16_t)(id - (uint16_t)ref);
+    return ref + (uint32_t)(int32_t)d;
+}
+
 int omi_parse_ring_notify(const uint8_t *d, size_t len, omi_ring_notify_t *o)
 {
     if (!d || len < 1) return -1;
@@ -173,6 +213,7 @@ int omi_parse_ring_notify(const uint8_t *d, size_t len, omi_ring_notify_t *o)
     case OMI_RING_NOTIFY_ACK:
         if (len < 2) return -1;
         o->status = d[1];
+        if (len >= 3 && d[1] == OMI_RING_ST_OK) o->caps = d[2];
         return 0;
     case OMI_RING_NOTIFY_INFO:
         if (len < 31) return -1;
@@ -181,6 +222,18 @@ int omi_parse_ring_notify(const uint8_t *d, size_t len, omi_ring_notify_t *o)
         o->capacity_packets = rd_be32(d + 17);
         o->dropped_packets = rd_be64(d + 21);
         o->packet_bytes = (uint16_t)((d[29] << 8) | d[30]);
+        if (len >= 41) {
+            o->caps = d[31];
+            o->custody_version = d[32];
+            o->ring_id = rd_be64(d + 33);
+            o->has_ring_id = (o->caps & OMI_CAP_RING_ID) != 0;
+        }
+        return 0;
+    case OMI_RING_NOTIFY_LIVE_MARK:
+        if (len < 19) return -1;
+        o->ring_id = rd_be64(d + 1);
+        o->seq = rd_be64(d + 9);
+        o->live_index = (uint16_t)((d[17] << 8) | d[18]);
         return 0;
     case OMI_RING_NOTIFY_DATA:
         o->data = d + 1;
@@ -230,6 +283,8 @@ bool omi_storage_write_allowed(omi_storage_proto_t proto, const uint8_t *b, size
         case OMI_RING_CMD_INFO: return len == 1;
         case OMI_RING_CMD_READ: return len == 9 || len == 13;
         case OMI_RING_CMD_ADVANCE: return len == 9;
+        case OMI_RING_CMD_CUSTODY: return len == 3;
+        case OMI_RING_CMD_ADVANCE_ID: return len == 17;
         default: return false; /* incl. RING_CLEAR 0x13 */
         }
     }

@@ -1,0 +1,17 @@
+# Overlay for Seeed XIAO ESP32S3 (8 MB flash, 8 MB octal PSRAM). Alternate board.
+# Applied AFTER sdkconfig.defaults (SuperMini is the default):
+#   idf.py -B build-xiao -D SDKCONFIG=build-xiao/sdkconfig \
+#     -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.board.xiao" build
+CONFIG_OMI_BOARD_NAME="xiao-esp32s3"
+
+# 8 MB flash, 8 MB partition table
+CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
+CONFIG_ESPTOOLPY_FLASHMODE_DIO=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+
+# Octal PSRAM (N8R8)
+CONFIG_SPIRAM_MODE_OCT=y
+
+# No WS2812; plain LED unconfigured
+CONFIG_OMI_LED_WS2812=n
+CONFIG_OMI_LED_GPIO=-1

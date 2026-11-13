@@ -238,8 +238,61 @@ static void test_time_sync(void)
     CHECK(b[0] == 1 && b[1] == 0 && b[2] == 0 && b[3] == 0);
 }
 
+
+static void test_custody_3024(void)
+{
+    uint8_t b[17];
+    CHECK(omi_ring_cmd_custody(b, 0x0f) == 3 && b[0] == 0x14 && b[1] == 1 && b[2] == 0x0f);
+    CHECK(omi_storage_write_allowed(OMI_PROTO_RING, b, 3));
+    CHECK(omi_ring_cmd_advance_id(b, 0x0102030405060708ull, 0x1122ull) == 17);
+    CHECK(b[0] == 0x15 && b[1] == 1 && b[8] == 8 && b[15] == 0x11 && b[16] == 0x22);
+    CHECK(omi_storage_write_allowed(OMI_PROTO_RING, b, 17));
+    CHECK(!omi_storage_write_allowed(OMI_PROTO_RING, b, 16));
+    uint8_t clr[1] = {0x13};
+    CHECK(!omi_storage_write_allowed(OMI_PROTO_RING, clr, 1));
+
+    omi_ring_notify_t m;
+    uint8_t ack[3] = {1, 0, 0x0f};
+    CHECK(omi_parse_ring_notify(ack, 3, &m) == 0 && m.type == OMI_RING_NOTIFY_ACK && m.caps == 0x0f);
+    uint8_t nak[3] = {1, 11, 0x0f};
+    CHECK(omi_parse_ring_notify(nak, 3, &m) == 0 && m.status == 11 && m.caps == 0);
+
+    uint8_t info[41] = {2};
+    info[8] = 5;          /* read_seq = 5 */
+    info[16] = 9;         /* write_seq = 9 */
+    info[29] = 0x01; info[30] = 0xbc; /* 444 */
+    info[31] = 0x0f; info[32] = 1;
+    info[33] = 0xaa; info[40] = 0x55;
+    CHECK(omi_parse_ring_notify(info, 41, &m) == 0);
+    CHECK(m.read_seq == 5 && m.write_seq == 9 && m.packet_bytes == 444);
+    CHECK(m.has_ring_id && m.custody_version == 1 && m.ring_id == 0xaa00000000000055ull);
+    CHECK(omi_parse_ring_notify(info, 31, &m) == 0 && !m.has_ring_id); /* 3.0.21 INFO */
+
+    uint8_t mk[19] = {6};
+    mk[8] = 7; mk[16] = 0x30; mk[17] = 0x12; mk[18] = 0x34;
+    CHECK(omi_parse_ring_notify(mk, 19, &m) == 0 && m.type == OMI_RING_NOTIFY_LIVE_MARK);
+    CHECK(m.ring_id == 7 && m.seq == 0x30 && m.live_index == 0x1234);
+    CHECK(omi_parse_ring_notify(mk, 18, &m) != 0);
+
+    uint64_t t = 0;
+    CHECK(omi_custody_target(100, 10, 10, &t) && t == 110);
+    CHECK(omi_custody_target(100, 4, 10, &t) && t == 104);
+    CHECK(omi_custody_target(100, 12, 10, &t) && t == 110); /* never past request */
+    CHECK(!omi_custody_target(100, 0, 10, &t));
+
+    uint32_t u = 0; bool v = false;
+    omi_pid_unwrap(&u, &v, 65530);
+    CHECK(v && u == 65530);
+    omi_pid_unwrap(&u, &v, 3);
+    CHECK(u == 65539);
+    CHECK(omi_pid_near(65539, 65535) == 65535);
+    CHECK(omi_pid_near(65530, 2) == 65538);
+    CHECK(omi_pid_near(100, 90) == 90);
+}
+
 int main(void)
 {
+    test_custody_3024();
     test_parse_audio_packet();
     test_assembler_single_and_fragmented();
     test_assembler_drops_on_gap_and_wraps();

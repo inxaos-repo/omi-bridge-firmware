@@ -22,10 +22,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - board: xiao
+          - board: supermini   # default
             defaults: "sdkconfig.defaults"
-          - board: supermini
-            defaults: "sdkconfig.defaults;sdkconfig.board.supermini"
+          - board: xiao
+            defaults: "sdkconfig.defaults;sdkconfig.board.xiao"
     name: build-esp32s3 (${{ matrix.board }})
     steps:
       - uses: actions/checkout@v4
@@ -38,6 +38,18 @@ jobs:
           idf.py "${ARGS[@]}" set-target esp32s3
           idf.py "${ARGS[@]}" build || { ninja -C "$B" -k 0 2>&1 | grep -E 'error|warning' ; exit 1; }
           idf.py "${ARGS[@]}" size
+          # app must fit the smallest OTA slot of this board's partition table
+          python3 - "$B" <<'PY'
+          import csv, json, os, sys
+          b = sys.argv[1]
+          app = os.path.getsize(os.path.join(b, "omi_bridge.bin"))
+          pt = [l for l in open(os.path.join(b, "sdkconfig")) if l.startswith("CONFIG_PARTITION_TABLE_CUSTOM_FILENAME=")][0].split("=",1)[1].strip().strip('"')
+          rows = [r for r in csv.reader(l for l in open(pt) if l.strip() and not l.startswith("#"))]
+          slots = [int(r[4].strip(), 0) for r in rows if len(r) > 4 and r[1].strip() == "app"]
+          m = min(slots)
+          print(f"app {app} B / smallest app slot {m} B = {100*app/m:.1f}% ({pt})")
+          sys.exit(0 if app <= m * 0.95 else 1)
+          PY
           grep -E '^CONFIG_(ESPTOOLPY_FLASHSIZE|SPIRAM_MODE|OMI_LED|OMI_BOARD|ESP_CONSOLE_USB)' "$B/sdkconfig"
       - uses: actions/upload-artifact@v4
         with:

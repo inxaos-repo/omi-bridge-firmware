@@ -29,7 +29,25 @@ to the ingest API of [omi-monologue-pipeline](https://github.com/inxaos-repo/omi
      17 min of audio on 8 MB boards, 1.25 MB ≈ 5 min on the 4 MB SuperMini).
    - Uploads retry with exponential backoff (1 s → 30 s) and drain the oldest data (flash) first.
    - 400/413/415 responses go to `/spool/bad/` and are not retried forever.
-7. **Storage sync (fw 3.0.21 ring) is OFF by default.** Reading the ring frees pendant storage as it is
+7. **Backlog custody sync (fw 3.0.24) is ON.** Protocol spec (shared with the receiver):
+   [omi-monologue-pipeline `docs/omi-ble-protocol.md`](https://github.com/inxaos-repo/omi-monologue-pipeline/blob/main/docs/omi-ble-protocol.md).
+   If the pendant's `RING_INFO` carries a ring id, the bridge sends `CUSTODY_ENABLE` (0x14, caps
+   app-ack-reclaim | live-persist | idempotent-advance | ring-id). Then it loops: `RING_INFO`
+   (backlog end = write_seq at session start) → `RING_READ(read_seq, n)` into a PSRAM batch
+   (`min(128 KB, PSRAM/16)`; 128 KB ≈ 290 packets on both boards) → `POST format=omi-sd` →
+   **`ADVANCE_ID` (0x15, ring id + seq) only after the ingest answers 2xx**. The target never goes past
+   the packets actually received. Custody data is never spilled to flash and never acked on a flash
+   write: a failed POST, a lost notification or a WiFi outage just means the pendant keeps the data and
+   it is re-read later (duplicates are possible, loss is not). ADVANCE status 11 (ring id mismatch)
+   resets the session.
+
+   Live persistence: the pendant also writes live audio to its ring and sends `LIVE_MARK`
+   (ring id, seq, live packet index). Once the backlog is drained, the bridge acks a mark with
+   `ADVANCE_ID` when live audio through that packet index has been ingested (2xx). If any live batch
+   of the connection is spilled to flash, dropped or rejected, live marks are not acked for the rest
+   of that connection (the pendant re-sends that span as backlog next time).
+
+8. **Legacy storage sync (fw 3.0.21 ring) is OFF by default.** Reading the ring frees pendant storage as it is
    sent. Turn it on with `OMI_STORAGE_SYNC` or NVS `storage_sync=1`. When enabled, the bridge:
    - issues bounded `RING_READ`s only when the spool has room for the whole chunk,
    - strips the 4-byte timestamp from each 444-byte packet and writes the 440-byte blocks to the
@@ -51,13 +69,14 @@ Two board targets, both built in CI:
 
 | Board | Flash / PSRAM | Config | LED |
 |---|---|---|---|
-| Seeed **XIAO ESP32S3** (default; also ESP32-S3-DevKitC-1-N8R8) | 8 MB / 8 MB octal | `sdkconfig.defaults`, `partitions.csv` | none by default (`OMI_LED_GPIO` for a plain LED) |
-| Aideepen **ESP32-S3 Mini / SuperMini** (ESP32-S3FH4R2, S3-Zero style) | 4 MB / 2 MB quad | `+ sdkconfig.board.supermini`, `partitions_4mb.csv` | WS2812 on GPIO21 |
+| Aideepen **ESP32-S3 Mini / SuperMini** (ESP32-S3FH4R2, S3-Zero style) — **default** | 4 MB / 2 MB quad | `sdkconfig.defaults`, `partitions_4mb.csv` | WS2812 on GPIO21 |
+| Seeed **XIAO ESP32S3** (also ESP32-S3-DevKitC-1-N8R8) | 8 MB / 8 MB octal | `+ sdkconfig.board.xiao`, `partitions.csv` | none by default (`OMI_LED_GPIO` for a plain LED) |
 
 - Buffer sizes adapt to the PSRAM detected at boot (`components/omi_sizing`, host-tested): the RAM
-  queue is `min(OMI_RAM_QUEUE_KB, 35% of PSRAM)` before spilling to flash, hard cap 2x that, and the
-  ring-sync buffer is `min(256 KB, PSRAM/8)`. With 8 MB: 2 MB/4 MB/256 KB. With 2 MB: ~717 KB/1.4 MB/256 KB
-  (~3 min of audio in RAM). Logged at boot.
+  queue is `min(OMI_RAM_QUEUE_KB, 35% of PSRAM)` before spilling to flash, hard cap 2x that (1.5x below
+  4 MB PSRAM), the ring-sync buffer is `min(256 KB, PSRAM/8)` and the custody batch `min(128 KB, PSRAM/16)`.
+  With 8 MB: 2 MB/4 MB/256 KB/128 KB. With 2 MB: ~717 KB/~1.07 MB/256 KB/128 KB (~3 min of audio in RAM,
+  ~0.5 MB PSRAM left for live batches, spool reads and the stacks). Logged at boot.
 - It boots without PSRAM (`CONFIG_SPIRAM_IGNORE_NOTFOUND`), but then the RAM queue is 64 KB.
 - USB 5 V power. Keep it within a few metres of where the pendant is worn or charged.
 - Logs on the USB serial console include a `health:` line every 60 s with queue, spool, posts and
@@ -117,27 +136,29 @@ esptool.py --chip esp32s3 write_flash 0x9000 nvs.bin
 | `device_id` | `OMI_DEVICE_ID` | `?device=`. A `test…` prefix routes to the TEST wiki prefix |
 | `pendant_mac` | `OMI_PENDANT_MAC` | `aa:bb:cc:dd:ee:ff`, empty = first Omi seen |
 | `ntp` | `OMI_NTP_SERVER` | SNTP server (use the gateway if the IoT VLAN has no internet) |
-| `storage_sync` (u8) | `OMI_STORAGE_SYNC` | 0 (default) / 1. **1 consumes pendant data** |
+| `storage_sync` (u8) | `OMI_STORAGE_SYNC` | 0 (default) / 1. 3.0.21 legacy only. **1 consumes 3.0.21 pendant data**. 3.0.24 custody does not need it |
 
 Batch length, queue limits, spill timeout, ring chunk size, LED GPIO/type and the time sync toggle are
 Kconfig-only (or per-board in `sdkconfig.board.*`).
 
 ## Flash
 
-XIAO:
+XIAO (alternate board):
 
 ```bash
-idf.py -p /dev/ttyACM0 flash monitor
+B=build-xiao
+idf.py -B $B -D SDKCONFIG=$B/sdkconfig \
+  -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.board.xiao" set-target esp32s3 build
+idf.py -B $B -p /dev/ttyACM0 flash monitor
 ```
 
-### ESP32-S3 SuperMini (4 MB / 2 MB)
+### ESP32-S3 SuperMini (4 MB / 2 MB, default)
 
-1. Build with the board overlay (or download the `omi-bridge-esp32s3-supermini` CI artifact):
+1. Build (plain defaults; or download the `omi-bridge-esp32s3-supermini` CI artifact):
 
    ```bash
    B=build-supermini
-   idf.py -B $B -D SDKCONFIG=$B/sdkconfig \
-     -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.board.supermini" set-target esp32s3 build
+   idf.py -B $B -D SDKCONFIG=$B/sdkconfig set-target esp32s3 build
    ```
 
 2. Make the config. Copy `nvs_config.csv.example` to `nvs_config.csv` and set:
@@ -181,7 +202,7 @@ components/omi_proto/   pure C protocol: frame assembler, lp16, stored-frame ite
 main/ble_central.c      NimBLE scan/connect/discover/subscribe step machine
 main/uplink.c           live batching, PSRAM queue, spill, HTTP POST + retry
 main/spool.c            LittleFS spool (atomic records, .prt recovery, quarantine)
-main/ring_sync.c        3.0.21 ring storage sync (off by default)
+main/ring_sync.c        3.0.24 custody backlog/live-mark sync; 3.0.21 legacy ring sync (off by default)
 components/omi_sizing/  pure C PSRAM-based buffer sizing (host-tested)
 main/led.c              WS2812 / plain / no-op health LED
 main/net.c, config.c, app_main.c

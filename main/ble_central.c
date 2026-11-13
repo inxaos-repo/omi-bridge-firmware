@@ -149,7 +149,10 @@ static int write_cccd_cb(uint16_t conn, const struct ble_gatt_error *err, struct
     }
     if (which == 0) {
         ESP_LOGI(TAG, "live audio subscribed (fw %s)", s_fw[0] ? s_fw : "?");
-        if (g_cfg.storage_sync && h_storage_cccd && s_proto == OMI_PROTO_RING) {
+        /* ring protocol: always subscribe; ring_sync uses 3.0.24 custody when the
+         * pendant offers it (safe: nothing freed before ingest 2xx) and the
+         * 3.0.21 legacy path only if storage_sync is enabled. */
+        if (h_storage_cccd && s_proto == OMI_PROTO_RING) {
             subscribe(h_storage_cccd, 1);
         } else if (g_cfg.storage_sync) {
             ESP_LOGW(TAG, "storage sync enabled but %s; live only",
@@ -245,7 +248,7 @@ static int dsc_cb(uint16_t conn, const struct ble_gatt_error *err, uint16_t chr_
     if (which == 0) {
         if (!h_audio_cccd) { fail("audio CCCD missing", 0); return 0; }
         int si = h_storage ? find_chr(&UUID_STORAGE_CMD.u) : -1;
-        if (g_cfg.storage_sync && si >= 0) {
+        if (si >= 0) { /* 3.0.24 custody needs storage on every connection */
             int rc = ble_gattc_disc_all_dscs(s_conn, s_chrs[si].val, chr_end(si), dsc_cb, (void *)1);
             if (rc) fail("storage dsc", rc);
             return 0;
@@ -342,6 +345,11 @@ static void on_connected(uint16_t conn)
     if (rc) fail("mtu exchange", rc);
 }
 
+/* live packet id tracking for 3.0.24 live custody marks */
+static uint32_t s_pid, s_gen;
+static bool s_pid_valid;
+uint32_t ble_conn_gen(void) { return s_gen; }
+
 static void on_notify(uint16_t handle, struct os_mbuf *om)
 {
     uint8_t buf[260];
@@ -350,11 +358,14 @@ static void on_notify(uint16_t handle, struct os_mbuf *om)
     if (os_mbuf_copydata(om, 0, n, buf) != 0) return;
     if (handle == h_audio) {
         size_t fl = 0;
-        if (omi_frame_asm_feed(&s_asm, buf, n, s_frame, sizeof(s_frame), &fl) == 1) uplink_live_frame(s_frame, fl);
+        if (n >= 3) omi_pid_unwrap(&s_pid, &s_pid_valid, (uint16_t)(buf[0] | (buf[1] << 8)));
+        /* a completed frame is covered at least through the previous packet (conservative) */
+        if (omi_frame_asm_feed(&s_asm, buf, n, s_frame, sizeof(s_frame), &fl) == 1)
+            uplink_live_frame(s_frame, fl, s_pid - 1, s_gen);
         if (++s_notifies % 3000 == 0)
             ESP_LOGI(TAG, "audio: %lu notifies, %lu frames, %lu dropped", (unsigned long)s_notifies,
                      (unsigned long)s_asm.frames_out, (unsigned long)s_asm.dropped);
-    } else if (handle == h_storage && g_cfg.storage_sync) {
+    } else if (handle == h_storage) {
         ring_sync_on_notify(buf, n);
     }
 }
@@ -376,6 +387,8 @@ static int gap_event(struct ble_gap_event *event, void *arg)
     case BLE_GAP_EVENT_CONNECT:
         if (event->connect.status == 0) {
             ESP_LOGI(TAG, "connected");
+            s_gen++;
+            s_pid_valid = false;
             on_connected(event->connect.conn_handle);
         } else {
             ESP_LOGW(TAG, "connect failed status=%d", event->connect.status);
@@ -385,7 +398,7 @@ static int gap_event(struct ble_gap_event *event, void *arg)
     case BLE_GAP_EVENT_DISCONNECT: {
         ESP_LOGW(TAG, "disconnected reason=0x%x", event->disconnect.reason);
         size_t fl = 0;
-        if (omi_frame_asm_flush(&s_asm, s_frame, sizeof(s_frame), &fl) == 1) uplink_live_frame(s_frame, fl);
+        if (omi_frame_asm_flush(&s_asm, s_frame, sizeof(s_frame), &fl) == 1) uplink_live_frame(s_frame, fl, s_pid, s_gen);
         uplink_live_flush();
         ring_sync_on_disconnect();
         s_conn = BLE_HS_CONN_HANDLE_NONE;

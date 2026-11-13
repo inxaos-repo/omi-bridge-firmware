@@ -77,7 +77,11 @@ bool spool_stream_close(spool_stream_t *s);    /* sync, finalize header, rename 
 void uplink_init(void);
 void uplink_start(void);
 /* called from the NimBLE host task for every reassembled Opus frame */
-void uplink_live_frame(const uint8_t *frame, size_t n);
+/* pid: unwrapped id of the last BLE audio packet covered by this frame;
+ * gen: ble_conn_gen() at the time (3.0.24 live custody marks) */
+void uplink_live_frame(const uint8_t *frame, size_t n, uint32_t pid, uint32_t gen);
+/* synchronous POST /v1/frames; returns HTTP status or -1 */
+int uplink_post(uint8_t fmt, uint32_t start, const uint8_t *data, size_t len);
 /* finalize the current live batch now (e.g. on disconnect) */
 void uplink_live_flush(void);
 /* "a spool file was produced" hint */
@@ -87,13 +91,23 @@ bool uplink_backlogged(void);
 /* ---- BLE central ---- */
 void ble_central_start(void);
 bool ble_connected(void);
+/* increments on every BLE connection */
+uint32_t ble_conn_gen(void);
 /* write to storage characteristic through the safety guard. false if rejected/failed */
 bool ble_storage_write(const uint8_t *buf, size_t len);
 
-/* ---- ring storage sync (fw 3.0.21; only if g_cfg.storage_sync) ---- */
+/* ---- ring storage sync ----
+ * fw 3.0.24 custody (preferred, always on): READ backlog -> POST -> ADVANCE_ID
+ *   only after ingest 2xx; live-persist marks acked once live audio through the
+ *   mark's packet id has been ingested (2xx).
+ * fw 3.0.21 legacy (only if g_cfg.storage_sync): spool to flash, then ADVANCE. */
 void ring_sync_init(void);
 /* host task: raw storage notification (incl. type byte) */
 void ring_sync_on_notify(const uint8_t *d, size_t len);
 /* host task: storage notifications subscribed and protocol known */
 void ring_sync_on_ready(omi_storage_proto_t proto);
 void ring_sync_on_disconnect(void);
+/* uplink task: live batch of connection gen ingested (2xx) through pid */
+void ring_sync_live_uploaded(uint32_t gen, uint32_t pid);
+/* live audio of gen was spilled/dropped/rejected: stop live-mark acks for gen */
+void ring_sync_live_gap(uint32_t gen);

@@ -29,6 +29,8 @@ typedef struct item {
     uint32_t start;      /* epoch, 0 if time was not valid yet */
     int64_t start_us;    /* esp_timer time of first frame (to backfill start) */
     int64_t queued_us;
+    uint32_t live_pid;   /* unwrapped pid of last live packet in batch */
+    uint32_t gen;        /* BLE connection generation (custody live marks) */
     size_t len;
     uint8_t data[];      /* PSRAM */
 } item_t;
@@ -45,6 +47,7 @@ static size_t s_live_len;
 static int s_live_frames;
 static uint32_t s_live_start;
 static int64_t s_live_start_us, s_live_last_us;
+static uint32_t s_live_pid, s_live_gen;
 
 static volatile bool s_backlog;
 static uint32_t s_ok_posts, s_failed_posts, s_lost_batches;
@@ -70,6 +73,7 @@ static void live_finalize_locked(void)
     item_t *it = ps_alloc(sizeof(item_t) + s_live_len);
     if (!it) {
         s_lost_batches++;
+        ring_sync_live_gap(s_live_gen);
         ESP_LOGE(TAG, "OOM: dropped live batch (%d frames)", s_live_frames);
     } else {
         it->next = NULL;
@@ -77,6 +81,8 @@ static void live_finalize_locked(void)
         it->start = s_live_start;
         it->start_us = s_live_start_us;
         it->queued_us = esp_timer_get_time();
+        it->live_pid = s_live_pid;
+        it->gen = s_live_gen;
         it->len = s_live_len;
         memcpy(it->data, s_live, s_live_len);
         if (s_tail) s_tail->next = it; else s_head = it;
@@ -89,12 +95,12 @@ static void live_finalize_locked(void)
     if (s_task) xTaskNotifyGive(s_task);
 }
 
-void uplink_live_frame(const uint8_t *frame, size_t n)
+void uplink_live_frame(const uint8_t *frame, size_t n, uint32_t pid, uint32_t gen)
 {
     int64_t now = esp_timer_get_time();
     xSemaphoreTake(s_mu, portMAX_DELAY);
-    if (s_live_frames &&
-        ((now - s_live_start_us) / 1000 >= CONFIG_OMI_BATCH_MS || s_live_len + 2 + n > LIVE_CAP)) {
+    if (s_live_frames && (gen != s_live_gen ||
+        (now - s_live_start_us) / 1000 >= CONFIG_OMI_BATCH_MS || s_live_len + 2 + n > LIVE_CAP))) {
         live_finalize_locked();
     }
     if (s_live_frames == 0) {
@@ -106,6 +112,10 @@ void uplink_live_frame(const uint8_t *frame, size_t n)
         s_live_len = u;
         s_live_frames++;
         s_live_last_us = now;
+        s_live_pid = pid;
+        s_live_gen = gen;
+    } else {
+        ring_sync_live_gap(gen);
     }
     xSemaphoreGive(s_mu);
 }
@@ -125,7 +135,7 @@ void uplink_kick(void)
 bool uplink_backlogged(void) { return s_backlog; }
 
 /* POST one batch. Returns HTTP status, or -1 on transport error. */
-static int post_batch(uint8_t fmt, uint32_t start, const uint8_t *data, size_t len)
+int uplink_post(uint8_t fmt, uint32_t start, const uint8_t *data, size_t len)
 {
     char url[320];
     snprintf(url, sizeof(url), "%s/v1/frames?device=%s&start=%lu&format=%s&codec=21",
@@ -203,6 +213,7 @@ static void maybe_spill(void)
         uint32_t start = resolve_start(it->start, it->start_us);
         if (spool_write(it->fmt, start, it->data, it->len)) {
             ESP_LOGW(TAG, "spilled %u B batch to flash", (unsigned)it->len);
+            if (it->fmt == SPOOL_FMT_LP16) ring_sync_live_gap(it->gen); /* not ingested yet: stop live acks */
             free(it);
         } else {
             push_front(it);   /* flash full: keep in RAM; drop only if RAM is over hard cap */
@@ -212,6 +223,7 @@ static void maybe_spill(void)
             if (over) {
                 item_t *drop = pop_head();
                 s_lost_batches++;
+                if (drop) ring_sync_live_gap(drop->gen);
                 ESP_LOGE(TAG, "RAM+flash full: DROPPED oldest batch (%u B)", drop ? (unsigned)drop->len : 0);
                 free(drop);
             }
@@ -261,19 +273,21 @@ static void uplink_task(void *arg)
                 continue;
             }
             uint32_t start = h.start ? h.start : (net_time_valid() ? net_epoch() : 0);
-            status = post_batch(h.fmt, start, data, h.len);
+            status = uplink_post(h.fmt, start, data, h.len);
             free(data);
             if (status == 201) spool_remove(path);
             else if (permanent_reject(status)) spool_quarantine(path);
         } else {
             item_t *it = pop_head();
             if (!it) continue;
-            status = post_batch(it->fmt, resolve_start(it->start, it->start_us), it->data, it->len);
+            status = uplink_post(it->fmt, resolve_start(it->start, it->start_us), it->data, it->len);
             if (status == 201) {
+                if (it->fmt == SPOOL_FMT_LP16) ring_sync_live_uploaded(it->gen, it->live_pid);
                 free(it);
             } else if (permanent_reject(status)) {
                 /* server says the batch itself is bad: retrying can't help */
                 s_lost_batches++;
+                ring_sync_live_gap(it->gen);
                 ESP_LOGE(TAG, "server rejected live batch (%d), dropped %u B", status, (unsigned)it->len);
                 free(it);
             } else {

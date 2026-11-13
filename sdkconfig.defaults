@@ -1,17 +1,21 @@
-# Template defaults for target esp32s3 (board: Seeed XIAO ESP32S3). NO SECRETS HERE.
-# Other boards: sdkconfig.board.<name> overlays, see README "Boards".
+# Template defaults for target esp32s3. DEFAULT BOARD: Aideepen ESP32-S3 SuperMini
+# (ESP32-S3FH4R2: 4 MB flash, 2 MB quad PSRAM, WS2812 on GPIO21). NO SECRETS HERE.
+# Other boards: sdkconfig.board.<name> overlays (XIAO: sdkconfig.board.xiao), see README "Boards".
+CONFIG_OMI_BOARD_NAME="s3-supermini"
 # WiFi/token/URL: set via `idf.py menuconfig` into a local, git-ignored sdkconfig,
 # or (preferred) flash an NVS config partition (see nvs_config.csv.example).
 CONFIG_IDF_TARGET="esp32s3"
 
-# Flash / partitions (8 MB, OTA-ready)
-CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
+# Flash / partitions (4 MB in-package, QIO, 2x OTA + spool)
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
 CONFIG_PARTITION_TABLE_CUSTOM=y
-CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions_4mb.csv"
 
-# PSRAM (octal on N8R8/N16R8 modules). Boots without it, with a smaller RAM queue.
+# PSRAM: 2 MB QUAD in-package. Boots without it, with a smaller RAM queue.
 CONFIG_SPIRAM=y
-CONFIG_SPIRAM_MODE_OCT=y
+CONFIG_SPIRAM_MODE_QUAD=y
+CONFIG_SPIRAM_SPEED_80M=y
 CONFIG_SPIRAM_IGNORE_NOTFOUND=y
 CONFIG_SPIRAM_USE_MALLOC=y
 CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=4096
@@ -29,6 +33,14 @@ CONFIG_BT_NIMBLE_50_FEATURE_SUPPORT=y
 # legacy scan API/events (BLE_GAP_EVENT_DISC); 2M PHY still available
 CONFIG_BT_NIMBLE_EXT_ADV=n
 CONFIG_BT_NIMBLE_MSYS_1_BLOCK_COUNT=24
+
+# Native USB-C: console on USB-Serial-JTAG
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+
+# WS2812 status LED on GPIO21
+CONFIG_OMI_LED_GPIO=21
+CONFIG_OMI_LED_WS2812=y
+CONFIG_OMI_LED_BRIGHTNESS=16
 
 # Coexistence WiFi + BLE
 CONFIG_ESP_COEX_SW_COEXIST_ENABLE=y
