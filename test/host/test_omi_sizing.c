@@ -22,6 +22,9 @@ int main(void)
     CHECK(m.ram_queue_hard + m.ring_buf <= 2 * MB * 83 / 100);
     CHECK(m.ring_buf == 256u * 1024u);
     CHECK(m.ram_queue_soft >= 512u * 1024u); /* still > 2 min of audio */
+    CHECK(m.custody_batch == 128u * 1024u);
+    CHECK(m.ram_queue_hard + m.ring_buf + m.custody_batch <= 2 * MB * 75 / 100);
+    CHECK(x.custody_batch == 128u * 1024u);
 
     /* small config is respected */
     omi_sizing_t s = omi_sizing_compute(2 * MB, 128);
@@ -31,6 +34,7 @@ int main(void)
     omi_sizing_t n = omi_sizing_compute(0, 2048);
     CHECK(n.ram_queue_soft == 64u * 1024u);
     CHECK(n.ring_buf == 32u * 1024u);
+    CHECK(n.custody_batch == 16u * 1024u);
 
     if (fails) { fprintf(stderr, "%d sizing check(s) failed\n", fails); return 1; }
     printf("all omi_sizing host tests passed\n");

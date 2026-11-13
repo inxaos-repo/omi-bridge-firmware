@@ -82,7 +82,7 @@ menu "Omi bridge"
 
     config OMI_BOARD_NAME
         string "Board name (logged at boot)"
-        default "xiao-esp32s3"
+        default "s3-supermini"
 
     config OMI_LED_WS2812
         bool "Health LED is a WS2812 RGB LED (on OMI_LED_GPIO)"

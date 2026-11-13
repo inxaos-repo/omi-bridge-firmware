@@ -10,15 +10,23 @@ README.md has the user-facing details.
 - **Never send pendant-wiping commands.** No builders for `RING_CLEAR` (0x13) or 3.0.19
   `DELETE_FILE`. All writes to the storage characteristic go through `ble_storage_write()` →
   `omi_storage_write_allowed()`. Keep the guard test (`test_guard_never_wipes`) passing.
-- **Storage sync defaults to OFF.** Reading the 3.0.21 ring consumes pendant data. Always persist to
-  the flash spool and fsync **before** `RING_ADVANCE`.
+- **This is the ONLY bridge firmware repo** (boss decision 2026-11-12). A duplicate once lived in
+  omi-monologue-pipeline `firmware/esp32s3-bridge`; it was merged here and removed there.
+- **3.0.24 custody (primary target):** `ADVANCE_ID` only after the ingest returned 2xx for exactly the
+  packets received. Never spill custody data to flash or ack on a flash write. Live marks are acked
+  only after the backlog is drained and live audio through the mark index was ingested 2xx with no
+  spill/drop/reject in that connection.
+- **3.0.21 legacy storage sync defaults to OFF.** Reading the 3.0.21 ring consumes pendant data. Always
+  persist to the flash spool and fsync **before** `RING_ADVANCE`.
+- **SuperMini (4 MB / 2 MB quad PSRAM) is the default board** (`sdkconfig.defaults`). XIAO is the
+  `sdkconfig.board.xiao` overlay. CI fails if the app exceeds 95% of the smallest OTA slot.
 - **No secrets in git.** `sdkconfig`, `nvs_config.csv` and `*.nvs.bin` are git-ignored. Only
   `sdkconfig.defaults` and `nvs_config.csv.example` are committed.
 - Keep `components/omi_proto` free of ESP-IDF includes so it builds on the host.
 - Don't flash devices or connect to the real pendant from automation.
 
 ## Workflow
-- Branch `bob/*` → PR → CI green (`host-tests` and the `build-esp32s3` matrix: xiao + supermini). Bob created this repo, so Bob may
+- Branch `bob/*` → PR → CI green (`host-tests` and the `build-esp32s3` matrix: supermini (default) + xiao). Bob created this repo, so Bob may
   self-merge after green CI.
 - Local checks:
   - `make -C test/host test`

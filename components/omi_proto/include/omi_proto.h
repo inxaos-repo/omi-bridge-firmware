@@ -79,12 +79,31 @@ int omi_iter_stored_frames(const uint8_t *raw, size_t len, size_t block, omi_fra
 #define OMI_RING_CMD_READ    0x11
 #define OMI_RING_CMD_ADVANCE 0x12
 #define OMI_RING_CMD_CLEAR   0x13  /* NEVER sent by this firmware (no builder exists) */
+/* fw 3.0.24 app custody (see omi-monologue-pipeline docs/omi-ble-protocol.md) */
+#define OMI_RING_CMD_CUSTODY    0x14  /* [0x14][version u8][caps u8] */
+#define OMI_RING_CMD_ADVANCE_ID 0x15  /* [0x15][ring_id be64][seq be64] */
+#define OMI_CAP_APP_ACK_RECLAIM    0x01
+#define OMI_CAP_LIVE_PERSIST       0x02
+#define OMI_CAP_ADVANCE_IDEMPOTENT 0x04
+#define OMI_CAP_RING_ID            0x08
+#define OMI_CUSTODY_VERSION        1
+#define OMI_RING_ST_OK             0
+#define OMI_RING_ST_ID_MISMATCH    11
 
 size_t omi_ring_cmd_info(uint8_t out[1]);
 size_t omi_ring_cmd_stop(uint8_t out[1]);
 /* count==0 -> 9-byte form (all unread); else 13-byte form */
 size_t omi_ring_cmd_read(uint8_t out[13], uint64_t start_seq, uint32_t count);
 size_t omi_ring_cmd_advance(uint8_t out[9], uint64_t seq);
+size_t omi_ring_cmd_custody(uint8_t out[3], uint8_t caps);
+size_t omi_ring_cmd_advance_id(uint8_t out[17], uint64_t ring_id, uint64_t seq);
+/* ADVANCE_ID target for a backlog READ of `requested` packets at `start` that
+ * delivered `packets`: never past what was actually received. false if none. */
+bool omi_custody_target(uint64_t start, uint32_t packets, uint32_t requested, uint64_t *out);
+/* extend a 16-bit BLE audio packet id into a monotonically unwrapped counter */
+void omi_pid_unwrap(uint32_t *state, bool *valid, uint16_t id);
+/* unwrap a 16-bit id to the 32-bit value nearest `ref` */
+uint32_t omi_pid_near(uint32_t ref, uint16_t id);
 
 typedef enum {
     OMI_RING_NOTIFY_ACK = 1,
@@ -92,6 +111,7 @@ typedef enum {
     OMI_RING_NOTIFY_DATA = 3,
     OMI_RING_NOTIFY_DONE = 4,
     OMI_RING_NOTIFY_BEGIN = 5,
+    OMI_RING_NOTIFY_LIVE_MARK = 6,  /* 3.0.24: [6][ring_id be64][seq be64][live_index be16] */
 } omi_ring_notify_type_t;
 
 typedef struct {
@@ -101,6 +121,11 @@ typedef struct {
     uint32_t capacity_packets;      /* INFO */
     uint64_t dropped_packets;       /* INFO */
     uint16_t packet_bytes;          /* INFO */
+    uint8_t caps;                   /* ACK to CUSTODY (len>=3), INFO (3.0.24) */
+    uint8_t custody_version;        /* INFO (3.0.24) */
+    bool has_ring_id;               /* INFO carries a ring id (3.0.24) */
+    uint64_t ring_id;               /* INFO, LIVE_MARK */
+    uint16_t live_index;            /* LIVE_MARK */
     uint64_t seq;                   /* BEGIN start_seq, DONE next_seq */
     uint32_t count;                 /* BEGIN */
     const uint8_t *data;            /* DATA payload (after marker) */
