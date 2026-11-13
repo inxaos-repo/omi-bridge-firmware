@@ -46,7 +46,7 @@ menu "Omi bridge"
         string "SNTP server"
         default "pool.ntp.org"
         help
-            Use the gateway (e.g. 192.168.2.1) if the IoT VLAN has no internet. NVS: omi/ntp.
+            Use the gateway (e.g. <gateway-ip>) if the IoT VLAN has no internet. NVS: omi/ntp.
 
     config OMI_PENDANT_TIME_SYNC
         bool "Write SNTP epoch to the pendant RTC (19B10031)"

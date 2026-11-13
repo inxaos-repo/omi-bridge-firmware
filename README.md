@@ -131,7 +131,7 @@ esptool.py --chip esp32s3 write_flash 0x9000 nvs.bin
 | Key (NVS ns `omi`) | Kconfig | Meaning |
 |---|---|---|
 | `wifi_ssid`, `wifi_pass` | `OMI_WIFI_SSID/PASSWORD` | IoT VLAN WiFi |
-| `ingest_url` | `OMI_INGEST_URL` | `http://192.168.2.172:8080` (plain-HTTP MetalLB LB `omi-ingest-lan`; see pipeline `docs/ingest.md`) |
+| `ingest_url` | `OMI_INGEST_URL` | `http://<ingest-host>:8080` (plain-HTTP MetalLB LB `omi-ingest-lan`; see pipeline `docs/ingest.md`) |
 | `token` | `OMI_INGEST_TOKEN` | `OMI_INGEST_TOKEN` bearer |
 | `device_id` | `OMI_DEVICE_ID` | `?device=`. A `test…` prefix routes to the TEST wiki prefix |
 | `pendant_mac` | `OMI_PENDANT_MAC` | `aa:bb:cc:dd:ee:ff`, empty = first Omi seen |
@@ -163,7 +163,7 @@ idf.py -B $B -p /dev/ttyACM0 flash monitor
 
 2. Make the config. Copy `nvs_config.csv.example` to `nvs_config.csv` and set:
    - `wifi_ssid`, `wifi_pass`: IoT VLAN WiFi
-   - `ingest_url`: `http://192.168.2.172:8080`
+   - `ingest_url`: `http://<ingest-host>:8080`
    - `token`: the `OMI_INGEST_TOKEN` value
    - `device_id`: `omi-test-bridge` (the `test` prefix routes to the TEST wiki prefix)
    - `storage_sync`: `0` (**OFF for the first test**; 1 consumes pendant data)
