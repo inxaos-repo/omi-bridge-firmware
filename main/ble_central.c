@@ -458,3 +458,11 @@ void ble_central_start(void)
     ble_att_set_preferred_mtu(247);
     nimble_port_freertos_init(host_task);
 }
+
+int ble_rssi(void)
+{
+    int8_t rssi = 0;
+    uint16_t c = s_conn;
+    if (c == BLE_HS_CONN_HANDLE_NONE || ble_gap_conn_rssi(c, &rssi) != 0) return 0;
+    return rssi;
+}

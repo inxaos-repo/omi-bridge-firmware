@@ -169,6 +169,35 @@ int uplink_post(uint8_t fmt, uint32_t start, const uint8_t *data, size_t len)
     return status;
 }
 
+/* POST the 60 s health line as JSON to /v1/bridge-health (exported as Prometheus gauges by the
+ * ingest). Best effort: short timeout, result ignored, never touches custody state. */
+static void post_health(int wifi, int ble, int rssi, int ram_q, unsigned ram_kb, int spool, unsigned spool_free_kb,
+                        unsigned psram_free_kb)
+{
+    char url[256], body[320];
+    snprintf(url, sizeof(url), "%s/v1/bridge-health?device=%s", g_cfg.ingest_url, g_cfg.device_id);
+    int n = snprintf(body, sizeof(body),
+                     "{\"wifi\":%d,\"ble\":%d,\"rssi\":%d,\"ram_q\":%d,\"ram_kb\":%u,\"spool\":%d,"
+                     "\"spool_free_kb\":%u,\"posts_ok\":%lu,\"posts_fail\":%lu,\"lost\":%lu,"
+                     "\"psram_free_kb\":%u,\"uptime_s\":%lld}",
+                     wifi, ble, rssi, ram_q, ram_kb, spool, spool_free_kb, (unsigned long)s_ok_posts,
+                     (unsigned long)s_failed_posts, (unsigned long)s_lost_batches, psram_free_kb,
+                     (long long)(esp_timer_get_time() / 1000000));
+    esp_http_client_config_t hc = {.url = url, .method = HTTP_METHOD_POST, .timeout_ms = 3000};
+    esp_http_client_handle_t c = esp_http_client_init(&hc);
+    if (!c) return;
+    esp_http_client_set_header(c, "Content-Type", "application/json");
+    char auth[160];
+    if (g_cfg.token[0]) {
+        snprintf(auth, sizeof(auth), "Bearer %s", g_cfg.token);
+        esp_http_client_set_header(c, "Authorization", auth);
+    }
+    esp_http_client_set_post_field(c, body, n);
+    esp_err_t err = esp_http_client_perform(c);
+    if (err != ESP_OK) ESP_LOGW(TAG, "health post failed: %s", esp_err_to_name(err));
+    esp_http_client_cleanup(c);
+}
+
 static bool permanent_reject(int status) { return status == 400 || status == 413 || status == 415; }
 
 /* pop RAM head (caller frees) */
@@ -258,6 +287,10 @@ static void uplink_task(void *arg)
                      net_wifi_up(), ble_connected(), s_ram_items, (unsigned)(s_ram_bytes / 1024), spooled,
                      (unsigned)(spool_free_bytes() / 1024), (unsigned long)s_ok_posts, (unsigned long)s_failed_posts,
                      (unsigned long)s_lost_batches, (unsigned)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024));
+            if (net_wifi_up())
+                post_health(1, ble_connected(), ble_connected() ? ble_rssi() : 0, s_ram_items,
+                            (unsigned)(s_ram_bytes / 1024), spooled, (unsigned)(spool_free_bytes() / 1024),
+                            (unsigned)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024));
         }
 
         if (!net_wifi_up()) continue;

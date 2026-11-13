@@ -91,6 +91,8 @@ bool uplink_backlogged(void);
 /* ---- BLE central ---- */
 void ble_central_start(void);
 bool ble_connected(void);
+/* RSSI of the pendant link in dBm, or 0 if not connected / unavailable. */
+int ble_rssi(void);
 /* increments on every BLE connection */
 uint32_t ble_conn_gen(void);
 /* write to storage characteristic through the safety guard. false if rejected/failed */
