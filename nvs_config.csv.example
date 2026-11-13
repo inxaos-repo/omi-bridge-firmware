@@ -2,9 +2,9 @@ key,type,encoding,value
 omi,namespace,,
 wifi_ssid,data,string,IoT-SSID
 wifi_pass,data,string,CHANGE_ME
-ingest_url,data,string,http://192.168.2.X:8080
+ingest_url,data,string,http://<ingest-host>:8080
 token,data,string,CHANGE_ME
 device_id,data,string,omi-bridge
 pendant_mac,data,string,
-ntp,data,string,192.168.2.1
+ntp,data,string,pool.ntp.org
 storage_sync,data,u8,0
